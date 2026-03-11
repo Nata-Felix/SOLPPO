@@ -9,7 +9,7 @@ services:
     container_name: solppo-web
     restart: always
     ports:
-      - "80:3000"
+      - "3000:3000"
     environment:
       - DB_PATH=/app/data/solppo.db
     volumes:
