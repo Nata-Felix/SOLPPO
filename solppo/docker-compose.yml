@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   web:
     build:
@@ -10,7 +8,5 @@ services:
     restart: always
     ports:
       - "3000:3000"
-    environment:
-      - DB_PATH=/app/data/solppo.db
     volumes:
       - ./solppo-data:/app/data
