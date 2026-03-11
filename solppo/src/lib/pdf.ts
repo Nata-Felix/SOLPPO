@@ -12,8 +12,10 @@ export type PdfOrcamentoData = {
     observacoes: string;
     itens: {
         descricao: string;
+        item_descricao_detalhe?: string;
         quantidade: number;
         preco_unitario: number;
+        desconto?: number;
         subtotal: number;
     }[];
 };
@@ -144,12 +146,15 @@ export async function generateOrcamentoPdf(data: PdfOrcamentoData, options?: { i
     y += 8;
 
     // ─── Table header with gradient ───
+    const hasAnyDiscount = data.itens.some(i => (i.desconto || 0) > 0);
+
     const col = {
         num: m + 2,
         desc: m + 12,
-        qtd: m + cw * 0.6,
-        preco: m + cw * 0.72,
-        sub: m + cw * 0.87,
+        qtd: m + cw * (hasAnyDiscount ? 0.52 : 0.6),
+        preco: m + cw * (hasAnyDiscount ? 0.64 : 0.72),
+        desconto: m + cw * 0.78,
+        sub: m + cw * (hasAnyDiscount ? 0.87 : 0.87),
     };
 
     fillGradient(doc, m, y, cw, 8, gradFrom, gradTo);
@@ -161,16 +166,24 @@ export async function generateOrcamentoPdf(data: PdfOrcamentoData, options?: { i
     doc.text(withDesc ? "DESCRIÇÃO" : "ITEM", col.desc, y + 5.5);
     doc.text("QTD", col.qtd, y + 5.5);
     doc.text("PREÇO UNIT.", col.preco, y + 5.5);
+    if (hasAnyDiscount) doc.text("DESC.", col.desconto, y + 5.5);
     doc.text("SUBTOTAL", col.sub, y + 5.5);
     y += 10;
 
     // ─── Table rows ───
     data.itens.forEach((item, idx) => {
         const maxW = col.qtd - col.desc - 3;
-        const descLines = withDesc
-            ? doc.splitTextToSize(item.descricao, maxW)
-            : [doc.splitTextToSize(item.descricao, maxW)[0]];
-        const rowH = Math.max(12, descLines.length * 4.5 + 6);
+
+        // Name (always shown) — first line
+        const nameText = item.descricao;
+        const nameLines = doc.splitTextToSize(nameText, maxW);
+
+        // Detail description (only with withDesc and if available)
+        const detailText = withDesc && item.item_descricao_detalhe ? item.item_descricao_detalhe : "";
+        const detailLines = detailText ? doc.splitTextToSize(detailText, maxW) : [];
+
+        const totalTextLines = withDesc ? nameLines.length + detailLines.length : 1;
+        const rowH = Math.max(12, totalTextLines * 4.5 + 6);
 
         if (y + rowH > 260) {
             doc.addPage();
@@ -194,13 +207,33 @@ export async function generateOrcamentoPdf(data: PdfOrcamentoData, options?: { i
 
         doc.setTextColor(40, 40, 50);
         doc.setFontSize(8.5);
-        doc.setFont("helvetica", "normal");
-        doc.text(descLines, col.desc, y + 3.5);
+        doc.setFont("helvetica", "bold");
+        const showName = withDesc ? nameLines : [nameLines[0]];
+        doc.text(showName, col.desc, y + 3.5);
+
+        // Detail description below the name
+        if (withDesc && detailLines.length > 0) {
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7.5);
+            doc.setTextColor(100, 100, 110);
+            doc.text(detailLines, col.desc, y + 3.5 + showName.length * 4.5);
+        }
 
         doc.setTextColor(80, 80, 90);
         doc.setFontSize(8.5);
         doc.text(item.quantidade.toString(), col.qtd, y + 3.5);
         doc.text(fmt(item.preco_unitario), col.preco, y + 3.5);
+
+        if (hasAnyDiscount) {
+            const desc = item.desconto || 0;
+            if (desc > 0) {
+                doc.setTextColor(34, 139, 34);
+                doc.text(`${desc}%`, col.desconto, y + 3.5);
+            } else {
+                doc.setTextColor(180, 180, 190);
+                doc.text("—", col.desconto, y + 3.5);
+            }
+        }
 
         doc.setTextColor(40, 40, 50);
         doc.setFont("helvetica", "bold");
@@ -295,28 +328,49 @@ export async function generateOrcamentoPdfBlob(data: PdfOrcamentoData, options?:
 
     y += 14; doc.setDrawColor(220, 220, 225); doc.setLineWidth(0.3); doc.line(m, y, m + cw, y); y += 8;
 
-    const col = { num: m + 2, desc: m + 12, qtd: m + cw * 0.6, preco: m + cw * 0.72, sub: m + cw * 0.87 };
+    const hasAnyDiscount2 = data.itens.some(i => (i.desconto || 0) > 0);
+    const col = {
+        num: m + 2,
+        desc: m + 12,
+        qtd: m + cw * (hasAnyDiscount2 ? 0.52 : 0.6),
+        preco: m + cw * (hasAnyDiscount2 ? 0.64 : 0.72),
+        desconto: m + cw * 0.78,
+        sub: m + cw * (hasAnyDiscount2 ? 0.87 : 0.87),
+    };
     fillGradient(doc, m, y, cw, 8, gradFrom, gradTo);
     doc.setTextColor(245, 158, 11); doc.setFontSize(7); doc.setFont("helvetica", "bold");
     doc.text("#", col.num, y + 5.5); doc.text(withDesc ? "DESCRIÇÃO" : "ITEM", col.desc, y + 5.5);
-    doc.text("QTD", col.qtd, y + 5.5); doc.text("PREÇO UNIT.", col.preco, y + 5.5); doc.text("SUBTOTAL", col.sub, y + 5.5);
+    doc.text("QTD", col.qtd, y + 5.5); doc.text("PREÇO UNIT.", col.preco, y + 5.5);
+    if (hasAnyDiscount2) doc.text("DESC.", col.desconto, y + 5.5);
+    doc.text("SUBTOTAL", col.sub, y + 5.5);
     y += 10;
 
     data.itens.forEach((item, idx) => {
         const maxW = col.qtd - col.desc - 3;
-        const descLines = withDesc
-            ? doc.splitTextToSize(item.descricao, maxW)
-            : [doc.splitTextToSize(item.descricao, maxW)[0]];
-        const rowH = Math.max(12, descLines.length * 4.5 + 6);
+        const nameLines = doc.splitTextToSize(item.descricao, maxW);
+        const detailText = withDesc && item.item_descricao_detalhe ? item.item_descricao_detalhe : "";
+        const detailLines = detailText ? doc.splitTextToSize(detailText, maxW) : [];
+        const totalTextLines = withDesc ? nameLines.length + detailLines.length : 1;
+        const rowH = Math.max(12, totalTextLines * 4.5 + 6);
         if (y + rowH > 260) { doc.addPage(); y = 20; }
         if (idx % 2 === 1) { doc.setFillColor(248, 248, 250); doc.rect(m, y - 5, cw, rowH, "F"); }
         doc.setDrawColor(235, 235, 238); doc.setLineWidth(0.2); doc.line(m, y + rowH - 5, m + cw, y + rowH - 5);
         doc.setTextColor(150, 150, 160); doc.setFontSize(7); doc.setFont("helvetica", "normal");
         doc.text(String(idx + 1), col.num, y + 3.5);
-        doc.setTextColor(40, 40, 50); doc.setFontSize(8.5); doc.setFont("helvetica", "normal");
-        doc.text(descLines, col.desc, y + 3.5);
+        doc.setTextColor(40, 40, 50); doc.setFontSize(8.5); doc.setFont("helvetica", "bold");
+        const showName = withDesc ? nameLines : [nameLines[0]];
+        doc.text(showName, col.desc, y + 3.5);
+        if (withDesc && detailLines.length > 0) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(100, 100, 110);
+            doc.text(detailLines, col.desc, y + 3.5 + showName.length * 4.5);
+        }
         doc.setTextColor(80, 80, 90); doc.setFontSize(8.5); doc.text(item.quantidade.toString(), col.qtd, y + 3.5);
         doc.text(fmt(item.preco_unitario), col.preco, y + 3.5);
+        if (hasAnyDiscount2) {
+            const desc = item.desconto || 0;
+            if (desc > 0) { doc.setTextColor(34, 139, 34); doc.text(`${desc}%`, col.desconto, y + 3.5); }
+            else { doc.setTextColor(180, 180, 190); doc.text("—", col.desconto, y + 3.5); }
+        }
         doc.setTextColor(40, 40, 50); doc.setFont("helvetica", "bold"); doc.text(fmt(item.subtotal), col.sub, y + 3.5);
         y += rowH;
     });

@@ -1,7 +1,7 @@
 import { getOrcamento } from "@/lib/db/actions";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Pencil } from "lucide-react";
 import { PrintButton, ExportPdfButton, WhatsAppButton } from "@/components/PrintButton";
 
 function formatCurrency(value: number) {
@@ -37,8 +37,10 @@ export default async function OrcamentoDetailPage({
         observacoes: orcamento.observacoes,
         itens: orcamento.itens.map((item) => ({
             descricao: item.descricao,
+            item_descricao_detalhe: item.item_descricao_detalhe || "",
             quantidade: item.quantidade,
             preco_unitario: item.preco_unitario,
+            desconto: item.desconto || 0,
             subtotal: item.subtotal,
         })),
     };
@@ -59,6 +61,15 @@ export default async function OrcamentoDetailPage({
                     </h1>
                 </div>
                 <div className="flex items-center gap-2">
+                    {(orcamento.status === "rascunho" || orcamento.status === "enviado") && (
+                        <Link
+                            href={`/orcamentos/${orcamento.id}/editar`}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 rounded-xl text-sm font-medium transition-colors"
+                        >
+                            <Pencil className="h-4 w-4" />
+                            Editar
+                        </Link>
+                    )}
                     <WhatsAppButton data={pdfData} clienteWhatsapp={(orcamento as Record<string, unknown>).cliente_whatsapp as string | undefined} />
                     <ExportPdfButton data={pdfData} />
                     <PrintButton />
@@ -132,6 +143,9 @@ export default async function OrcamentoDetailPage({
                                 <th className="text-right py-3 px-4 font-medium text-muted-foreground">
                                     Preço Unit.
                                 </th>
+                                <th className="text-center py-3 px-4 font-medium text-muted-foreground">
+                                    Desc.
+                                </th>
                                 <th className="text-right py-3 px-4 font-medium text-muted-foreground">
                                     Subtotal
                                 </th>
@@ -155,6 +169,15 @@ export default async function OrcamentoDetailPage({
                                     <td className="py-3 px-4 text-right font-mono text-foreground">
                                         {formatCurrency(item.preco_unitario)}
                                     </td>
+                                    <td className="py-3 px-4 text-center">
+                                        {(item.desconto || 0) > 0 ? (
+                                            <span className="text-green-500 font-medium text-sm">
+                                                {item.desconto}%
+                                            </span>
+                                        ) : (
+                                            <span className="text-muted-foreground text-sm">—</span>
+                                        )}
+                                    </td>
                                     <td className="py-3 px-4 text-right font-mono font-medium text-foreground">
                                         {formatCurrency(item.subtotal)}
                                     </td>
@@ -163,7 +186,7 @@ export default async function OrcamentoDetailPage({
                         </tbody>
                         <tfoot>
                             <tr className="bg-muted/50">
-                                <td colSpan={4} className="py-3 px-4 text-right font-semibold text-foreground">
+                                <td colSpan={5} className="py-3 px-4 text-right font-semibold text-foreground">
                                     Total
                                 </td>
                                 <td className="py-3 px-4 text-right font-mono font-bold text-lg text-primary">

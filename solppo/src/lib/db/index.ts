@@ -69,4 +69,11 @@ function initSchema(db: Database.Database) {
   } catch {
     // Column already exists
   }
+
+  // Migration: add desconto column to orcamento_itens
+  try {
+    db.exec(`ALTER TABLE orcamento_itens ADD COLUMN desconto REAL NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists
+  }
 }

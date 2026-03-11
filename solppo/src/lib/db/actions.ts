@@ -136,7 +136,10 @@ export type OrcamentoItem = {
     descricao: string;
     quantidade: number;
     preco_unitario: number;
+    desconto: number;
     subtotal: number;
+    // joined from itens table
+    item_descricao_detalhe?: string;
 };
 
 export async function getOrcamentos(): Promise<Orcamento[]> {
@@ -166,7 +169,12 @@ export async function getOrcamento(
     if (!orcamento) return undefined;
 
     const itens = db
-        .prepare("SELECT * FROM orcamento_itens WHERE orcamento_id = ?")
+        .prepare(
+            `SELECT oi.*, i.descricao as item_descricao_detalhe
+             FROM orcamento_itens oi
+             LEFT JOIN itens i ON oi.item_id = i.id
+             WHERE oi.orcamento_id = ?`
+        )
         .all(id) as OrcamentoItem[];
 
     return { ...orcamento, itens };
@@ -176,12 +184,15 @@ export async function createOrcamento(data: {
     cliente_id: number | null;
     validade_dias: number;
     observacoes: string;
-    itens: { item_id: number | null; descricao: string; quantidade: number; preco_unitario: number }[];
+    itens: { item_id: number | null; descricao: string; quantidade: number; preco_unitario: number; desconto?: number }[];
 }): Promise<{ id: number }> {
     const db = getDb();
 
     const valorTotal = data.itens.reduce(
-        (sum, item) => sum + item.quantidade * item.preco_unitario,
+        (sum, item) => {
+            const desc = item.desconto || 0;
+            return sum + item.quantidade * item.preco_unitario * (1 - desc / 100);
+        },
         0
     );
 
@@ -190,7 +201,7 @@ export async function createOrcamento(data: {
     );
 
     const insertItem = db.prepare(
-        `INSERT INTO orcamento_itens (orcamento_id, item_id, descricao, quantidade, preco_unitario, subtotal) VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO orcamento_itens (orcamento_id, item_id, descricao, quantidade, preco_unitario, desconto, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
 
     const transaction = db.transaction(() => {
@@ -203,13 +214,16 @@ export async function createOrcamento(data: {
         const orcamentoId = Number(result.lastInsertRowid);
 
         for (const item of data.itens) {
+            const desc = item.desconto || 0;
+            const subtotal = item.quantidade * item.preco_unitario * (1 - desc / 100);
             insertItem.run(
                 orcamentoId,
                 item.item_id,
                 item.descricao,
                 item.quantidade,
                 item.preco_unitario,
-                item.quantidade * item.preco_unitario
+                desc,
+                subtotal
             );
         }
 
@@ -226,6 +240,66 @@ export async function updateOrcamentoStatus(
 ): Promise<void> {
     const db = getDb();
     db.prepare("UPDATE orcamentos SET status = ? WHERE id = ?").run(status, id);
+}
+
+export async function updateOrcamento(
+    id: number,
+    data: {
+        cliente_id: number | null;
+        validade_dias: number;
+        observacoes: string;
+        itens: { item_id: number | null; descricao: string; quantidade: number; preco_unitario: number; desconto?: number }[];
+    }
+): Promise<void> {
+    const db = getDb();
+
+    const valorTotal = data.itens.reduce(
+        (sum, item) => {
+            const desc = item.desconto || 0;
+            return sum + item.quantidade * item.preco_unitario * (1 - desc / 100);
+        },
+        0
+    );
+
+    const updateStmt = db.prepare(
+        `UPDATE orcamentos SET cliente_id = ?, validade_dias = ?, observacoes = ?, valor_total = ? WHERE id = ?`
+    );
+
+    const deleteItems = db.prepare(
+        `DELETE FROM orcamento_itens WHERE orcamento_id = ?`
+    );
+
+    const insertItem = db.prepare(
+        `INSERT INTO orcamento_itens (orcamento_id, item_id, descricao, quantidade, preco_unitario, desconto, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    const transaction = db.transaction(() => {
+        updateStmt.run(
+            data.cliente_id,
+            data.validade_dias,
+            data.observacoes,
+            valorTotal,
+            id
+        );
+
+        deleteItems.run(id);
+
+        for (const item of data.itens) {
+            const desc = item.desconto || 0;
+            const subtotal = item.quantidade * item.preco_unitario * (1 - desc / 100);
+            insertItem.run(
+                id,
+                item.item_id,
+                item.descricao,
+                item.quantidade,
+                item.preco_unitario,
+                desc,
+                subtotal
+            );
+        }
+    });
+
+    transaction();
 }
 
 export async function deleteOrcamento(id: number): Promise<void> {

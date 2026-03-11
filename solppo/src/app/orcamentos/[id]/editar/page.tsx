@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Plus, Trash2, Search, X } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Search, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 // ─── Autocomplete search for items ───
@@ -22,10 +22,8 @@ function ItemSearch({
     const ref = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // Display selected item name
     const selectedItem = value ? itens.find((i) => i.id === value) : null;
 
-    // Filter results
     const filtered = query.trim()
         ? itens.filter((i) => {
             const q = query.toLowerCase();
@@ -33,7 +31,6 @@ function ItemSearch({
         }).slice(0, 15)
         : [];
 
-    // Close on outside click
     useEffect(() => {
         function handleClick(e: MouseEvent) {
             if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -169,33 +166,51 @@ function formatCurrency(value: number) {
     }).format(value);
 }
 
-export default function NovoOrcamentoPage() {
+export default function EditarOrcamentoPage() {
     const router = useRouter();
+    const params = useParams();
+    const id = params.id as string;
+
+    const [loading, setLoading] = useState(true);
     const [clientes, setClientes] = useState<ClienteOption[]>([]);
     const [itensDisponiveis, setItensDisponiveis] = useState<ItemOption[]>([]);
     const [clienteId, setClienteId] = useState<number | "">("");
     const [validadeDias, setValidadeDias] = useState(30);
     const [observacoes, setObservacoes] = useState("");
-    const [linhas, setLinhas] = useState<LineItem[]>([
-        {
-            key: Math.random().toString(36).substring(2, 9),
-            item_id: null,
-            descricao: "",
-            quantidade: 1,
-            preco_unitario: 0,
-            desconto: 0,
-        },
-    ]);
+    const [linhas, setLinhas] = useState<LineItem[]>([]);
     const [saving, setSaving] = useState(false);
 
+    // Load existing orcamento data + clientes + itens
     useEffect(() => {
-        fetch("/api/clientes")
-            .then((r) => r.json())
-            .then(setClientes);
-        fetch("/api/itens")
-            .then((r) => r.json())
-            .then(setItensDisponiveis);
-    }, []);
+        Promise.all([
+            fetch(`/api/orcamentos/${id}`).then((r) => r.json()),
+            fetch("/api/clientes").then((r) => r.json()),
+            fetch("/api/itens").then((r) => r.json()),
+        ]).then(([orcamento, clientesData, itensData]) => {
+            setClientes(clientesData);
+            setItensDisponiveis(itensData);
+
+            if (orcamento && !orcamento.error) {
+                setClienteId(orcamento.cliente_id || "");
+                setValidadeDias(orcamento.validade_dias || 30);
+                setObservacoes(orcamento.observacoes || "");
+                setLinhas(
+                    orcamento.itens.map((item: { item_id: number | null; descricao: string; quantidade: number; preco_unitario: number; desconto?: number }) => ({
+                        key: Math.random().toString(36).substring(2, 9),
+                        item_id: item.item_id,
+                        descricao: item.descricao,
+                        quantidade: item.quantidade,
+                        preco_unitario: item.preco_unitario,
+                        desconto: item.desconto || 0,
+                    }))
+                );
+            }
+            setLoading(false);
+        }).catch(() => {
+            toast.error("Erro ao carregar orçamento");
+            setLoading(false);
+        });
+    }, [id]);
 
     const total = linhas.reduce(
         (sum, l) => sum + l.quantidade * l.preco_unitario * (1 - l.desconto / 100),
@@ -246,8 +261,8 @@ export default function NovoOrcamentoPage() {
 
         setSaving(true);
         try {
-            const res = await fetch("/api/orcamentos", {
-                method: "POST",
+            const res = await fetch(`/api/orcamentos/${id}`, {
+                method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     cliente_id: clienteId || null,
@@ -264,30 +279,40 @@ export default function NovoOrcamentoPage() {
             });
 
             if (res.ok) {
-                toast.success("Orçamento criado com sucesso!");
-                router.push("/orcamentos");
+                toast.success("Orçamento atualizado com sucesso!");
+                router.push(`/orcamentos/${id}`);
                 router.refresh();
             } else {
-                toast.error("Erro ao criar orçamento");
+                toast.error("Erro ao atualizar orçamento");
             }
         } catch {
-            toast.error("Erro ao criar orçamento");
+            toast.error("Erro ao atualizar orçamento");
         } finally {
             setSaving(false);
         }
+    }
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-20">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        );
     }
 
     return (
         <div className="space-y-6">
             <div>
                 <Link
-                    href="/orcamentos"
+                    href={`/orcamentos/${id}`}
                     className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
                 >
                     <ArrowLeft className="h-4 w-4" />
                     Voltar
                 </Link>
-                <h1 className="text-3xl font-bold text-foreground">Novo Orçamento</h1>
+                <h1 className="text-3xl font-bold text-foreground">
+                    Editar Orçamento #{id.toString().padStart(4, "0")}
+                </h1>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -364,7 +389,7 @@ export default function NovoOrcamentoPage() {
                     </div>
 
                     <div className="space-y-3">
-                        {linhas.map((linha, idx) => (
+                        {linhas.map((linha) => (
                             <div
                                 key={linha.key}
                                 className="grid grid-cols-12 gap-2 items-end p-3 bg-muted/30 rounded-xl border border-border/50"
@@ -493,12 +518,13 @@ export default function NovoOrcamentoPage() {
                     <button
                         type="submit"
                         disabled={saving}
-                        className="btn-holographic bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-medium text-sm disabled:opacity-50"
+                        className="btn-holographic bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-medium text-sm disabled:opacity-50 inline-flex items-center gap-2"
                     >
-                        {saving ? "Salvando..." : "Criar Orçamento"}
+                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {saving ? "Salvando..." : "Salvar Alterações"}
                     </button>
                     <Link
-                        href="/orcamentos"
+                        href={`/orcamentos/${id}`}
                         className="px-6 py-2.5 border border-border text-muted-foreground hover:text-foreground rounded-xl text-sm transition-colors"
                     >
                         Cancelar

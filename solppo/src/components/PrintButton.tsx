@@ -100,43 +100,45 @@ export function WhatsAppButton({ data, clienteWhatsapp }: { data: PdfOrcamentoDa
             // Generate PDF as blob
             const blob = await generateOrcamentoPdfBlob(data, { includeDescription: true });
 
-            // Try Web Share API first (works on mobile and some desktop browsers)
-            if (navigator.share && navigator.canShare) {
-                const file = new File(
-                    [blob],
-                    `orcamento-${data.id.toString().padStart(4, "0")}.pdf`,
-                    { type: "application/pdf" }
-                );
-
-                const shareData = {
-                    text: `Olá ${data.cliente_nome}! Segue o orçamento #${data.id.toString().padStart(4, "0")} no valor de ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(data.valor_total)}. Aguardo seu retorno!`,
-                    files: [file],
-                };
-
-                if (navigator.canShare(shareData)) {
-                    await navigator.share(shareData);
-                    setLoading(false);
-                    return;
-                }
+            // Convert blob to base64
+            const arrayBuffer = await blob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            let binary = "";
+            for (let i = 0; i < uint8Array.length; i++) {
+                binary += String.fromCharCode(uint8Array[i]);
             }
+            const pdfBase64 = btoa(binary);
 
-            // Fallback: open WhatsApp Web with message (user attaches PDF manually)
-            const msg = encodeURIComponent(
-                `Olá ${data.cliente_nome}! 👋\n\nSegue o orçamento *#${data.id.toString().padStart(4, "0")}*\n💰 Valor total: *${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(data.valor_total)}*\n📅 Validade: ${data.validade_dias} dias\n\nAguardo seu retorno! 😊`
-            );
+            // Send via Next.js API proxy (avoids CORS)
+            const response = await fetch("/api/whatsapp-webhook", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    cliente_nome: data.cliente_nome,
+                    telefone: phone,
+                    pdf_filename: `orcamento-${data.id.toString().padStart(4, "0")}.pdf`,
+                    pdf_base64: pdfBase64,
+                    orcamento_id: data.id,
+                    valor_total: data.valor_total,
+                }),
+            });
 
-            // Also download the PDF for the user to attach
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `orcamento-${data.id.toString().padStart(4, "0")}.pdf`;
-            a.click();
-            URL.revokeObjectURL(url);
-
-            // Open WhatsApp
-            window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
+            if (response.ok) {
+                alert("Orçamento enviado por WhatsApp com sucesso!");
+            } else {
+                let errorDetails = "";
+                try {
+                    const errorData = await response.json();
+                    errorDetails = errorData.n8n_body ? `\nDetalhe do n8n: ${errorData.n8n_body}` : "";
+                } catch {
+                    // Ignore JSON parse error
+                }
+                throw new Error(`Webhook retornou status ${response.status}${errorDetails}`);
+            }
         } catch (err) {
             console.error("Erro ao enviar por WhatsApp:", err);
+            const msg = err instanceof Error ? err.message : "Erro desconhecido";
+            alert(`Erro ao enviar o orçamento.\n${msg}`);
         } finally {
             setLoading(false);
         }

@@ -12,6 +12,7 @@ import {
     CheckCircle2,
     XCircle,
     Send,
+    Pencil,
 } from "lucide-react";
 import { revalidatePath } from "next/cache";
 
@@ -146,6 +147,16 @@ export default async function OrcamentosPage() {
                                                 >
                                                     <Eye className="h-4 w-4" />
                                                 </Link>
+
+                                                {(orc.status === "rascunho" || orc.status === "enviado") && (
+                                                    <Link
+                                                        href={`/orcamentos/${orc.id}/editar`}
+                                                        className="p-2 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-colors"
+                                                        title="Editar"
+                                                    >
+                                                        <Pencil className="h-4 w-4" />
+                                                    </Link>
+                                                )}
 
                                                 {orc.status === "rascunho" && (
                                                     <form action={handleStatus}>
